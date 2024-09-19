@@ -34,7 +34,7 @@ func (s *Script) handleEvent(evt ScriptEvent) {
 	case "timer":
 		e := evt.(*TimerEvent)
 		if e != nil && s.timerModule.hasTimer(e.tag) {
-			s.callModFunction1(s.state, e.callback, lua.LString(e.tag))
+			s.callModFunction1(e.callback, lua.LString(e.tag))
 		}
 	}
 }
@@ -61,16 +61,21 @@ func (s *Script) start() {
 
 	if s.modTable != nil {
 		// exec 'start' funciton in lua mod
-		s.callModFunction0(ls, "start")
+		s.callModFunction0("start")
 	}
 }
 
 func (s *Script) hasLuaFunction(funcName string) bool {
-	fn := s.state.GetField(s.modTable, funcName)
-	return fn != nil
+	if s.modTable != nil {
+		fn := s.state.GetField(s.modTable, funcName)
+		return fn != nil
+	}
+
+	return false
 }
 
-func (s *Script) callModFunction0(ls *lua.LState, funcName string) {
+func (s *Script) callModFunction0(funcName string) {
+	ls := s.state
 	fn := ls.GetField(s.modTable, funcName)
 	if fn != nil {
 		ls.Push(fn)
@@ -81,7 +86,8 @@ func (s *Script) callModFunction0(ls *lua.LState, funcName string) {
 	}
 }
 
-func (s *Script) callModFunction1(ls *lua.LState, funcName string, param0 lua.LValue) {
+func (s *Script) callModFunction1(funcName string, param0 lua.LValue) {
+	ls := s.state
 	fn := ls.GetField(s.modTable, funcName)
 	if fn != nil {
 		ls.Push(fn)
@@ -97,7 +103,7 @@ func (s *Script) stop() {
 	ls := s.state
 	if s.modTable != nil {
 		// exec 'stop' funciton in lua mod
-		s.callModFunction0(ls, "stop")
+		s.callModFunction0("stop")
 	}
 
 	ls.Close()
