@@ -132,3 +132,8 @@ func (tm *TimerModule) serveTimer(timer *Timer, ctx context.Context) {
 		}
 	}
 }
+
+func (tm *TimerModule) hasTimer(tag string) bool {
+	_, ok := tm.timerMap[tag]
+	return ok
+}

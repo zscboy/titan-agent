@@ -33,7 +33,7 @@ func (s *Script) handleEvent(evt ScriptEvent) {
 	switch evt.evType() {
 	case "timer":
 		e := evt.(*TimerEvent)
-		if e != nil {
+		if e != nil && s.timerModule.hasTimer(e.tag) {
 			s.callModFunction1(s.state, e.callback, lua.LString(e.tag))
 		}
 	}
