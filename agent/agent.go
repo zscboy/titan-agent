@@ -58,6 +58,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	ticker := time.NewTicker(scriptUpdateinterval)
 	scriptUpdateTime := time.Now()
 	loop := true
+	defer ticker.Stop()
 
 	for loop {
 		script := a.currentScript()
@@ -75,7 +76,6 @@ func (a *Agent) Run(ctx context.Context) error {
 
 				scriptUpdateTime = time.Now()
 			}
-
 		case <-ctx.Done():
 			script.stop()
 			log.Info("ctx done, Run() will quit")
