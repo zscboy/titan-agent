@@ -6,7 +6,7 @@ import (
 )
 
 type ScriptEvent interface {
-	evType() string
+	evtType() string
 }
 
 type Script struct {
@@ -30,7 +30,7 @@ func (s *Script) pushEvt(evt ScriptEvent) {
 }
 
 func (s *Script) handleEvent(evt ScriptEvent) {
-	switch evt.evType() {
+	switch evt.evtType() {
 	case "timer":
 		e := evt.(*TimerEvent)
 		if e != nil && s.timerModule.hasTimer(e.tag) {

@@ -13,7 +13,7 @@ type TimerEvent struct {
 	callback string
 }
 
-func (te *TimerEvent) evType() string {
+func (te *TimerEvent) evtType() string {
 	return "timer"
 }
 
