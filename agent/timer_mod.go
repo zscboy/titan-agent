@@ -117,6 +117,7 @@ func (tm *TimerModule) serveTimer(timer *Timer, ctx context.Context) {
 	loop := true
 	interval := time.Second * time.Duration(timer.interval)
 	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
 
 	for loop {
 		select {
