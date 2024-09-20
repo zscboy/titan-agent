@@ -103,7 +103,7 @@ func (a *Agent) renewScript() {
 		oldScript.stop()
 	}
 
-	newScript := newScript(a.scriptFileMD5, a.scriptFileContent)
+	newScript := newScript(a, a.scriptFileMD5, a.scriptFileContent)
 	newScript.start()
 
 	a.script = newScript

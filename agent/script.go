@@ -10,6 +10,7 @@ type ScriptEvent interface {
 }
 
 type Script struct {
+	agent   *Agent
 	fileMD5 string
 
 	eventsChan chan ScriptEvent
@@ -19,6 +20,8 @@ type Script struct {
 	modTable *lua.LTable
 
 	timerModule *TimerModule
+
+	downloadModule *DownloadModule
 }
 
 func (s *Script) events() <-chan ScriptEvent {
@@ -36,11 +39,20 @@ func (s *Script) handleEvent(evt ScriptEvent) {
 		if e != nil && s.timerModule.hasTimer(e.tag) {
 			s.callModFunction1(e.callback, lua.LString(e.tag))
 		}
+	case "download":
+		e := evt.(*DownloadEvent)
+		if e != nil && s.downloadModule.hasDownloader(e.tag) {
+			t := s.state.NewTable()
+			t.RawSet(lua.LString("tag"), lua.LString(e.tag))
+			t.RawSet(lua.LString("err"), lua.LString(e.err))
+			s.callModFunction1(e.callback, t)
+		}
 	}
 }
 
-func newScript(scriptFileMD5 string, fileContent []byte) *Script {
+func newScript(agent *Agent, scriptFileMD5 string, fileContent []byte) *Script {
 	s := &Script{
+		agent:      agent,
 		fileMD5:    scriptFileMD5,
 		eventsChan: make(chan ScriptEvent, 64),
 	}
@@ -58,6 +70,12 @@ func (s *Script) start() {
 	ls := s.state
 	s.timerModule = newTimerModule(s)
 	ls.PreloadModule("timer", s.timerModule.loader)
+
+	s.downloadModule = newDownloaderModule(s)
+	ls.PreloadModule("downloader", s.downloadModule.loader)
+
+	agentModule := newAgentModule(s.agent)
+	ls.PreloadModule("agent", agentModule.loader)
 
 	if s.modTable != nil {
 		// exec 'start' funciton in lua mod
@@ -111,6 +129,8 @@ func (s *Script) stop() {
 	s.modTable = nil
 	s.timerModule.clear()
 	s.timerModule = nil
+	s.downloadModule.clear()
+	s.downloadModule = nil
 }
 
 func (s *Script) load(fileContent []byte) {
