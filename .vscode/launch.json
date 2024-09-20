@@ -9,7 +9,7 @@
             "type": "go",
             "request": "launch",
             "mode": "auto",
-            "program": "cmd/agent"
+            "program": "d:/golua-agent-test/cmd/agent"
         }
     ]
 }

@@ -44,6 +44,8 @@ func (s *Script) handleEvent(evt ScriptEvent) {
 		if e != nil && s.downloadModule.hasDownloader(e.tag) {
 			t := s.state.NewTable()
 			t.RawSet(lua.LString("tag"), lua.LString(e.tag))
+			t.RawSet(lua.LString("filePath"), lua.LString(e.filePath))
+			t.RawSet(lua.LString("md5"), lua.LString(e.md5))
 			t.RawSet(lua.LString("err"), lua.LString(e.err))
 			s.callModFunction1(e.callback, t)
 		}

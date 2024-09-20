@@ -8,7 +8,6 @@ import (
 	"os"
 	"time"
 
-	log "github.com/sirupsen/logrus"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -18,6 +17,8 @@ const downloadTimeout = 30
 type DownloadEvent struct {
 	tag      string
 	callback string
+	filePath string
+	md5      string
 	err      string
 }
 
@@ -88,16 +89,19 @@ func (dm *DownloadModule) createDownloadStub(L *lua.LState) int {
 
 	go func() {
 		err := downloader.donwloadFile(filePath, url)
-		errStr := ""
-		if err != nil {
-			log.Errorf("DownloadModule.createDownloadStub %s", err.Error())
-			errStr = err.Error()
-		}
-
 		dv := &DownloadEvent{
 			tag:      downloader.tag,
 			callback: downloader.callback,
-			err:      errStr,
+			filePath: filePath,
+		}
+
+		if err != nil {
+			dv.err = err.Error()
+		} else {
+			md5, err := fileMD5(filePath)
+			if err != nil {
+				dv.md5 = md5
+			}
 		}
 
 		dm.owner.pushEvt(dv)

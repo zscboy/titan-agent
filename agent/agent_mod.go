@@ -71,8 +71,8 @@ func fileMD5(filePath string) (string, error) {
 
 func (am *AgentModule) info(L *lua.LState) int {
 	t := L.NewTable()
-	t.RawSet(lua.LString("WorkingDir"), lua.LString(am.agent.args.WorkingDir))
-	t.RawSet(lua.LString("Version"), lua.LString(am.agent.Version()))
+	t.RawSet(lua.LString("wdir"), lua.LString(am.agent.args.WorkingDir))
+	t.RawSet(lua.LString("version"), lua.LString(am.agent.Version()))
 
 	L.Push(t)
 	return 1
