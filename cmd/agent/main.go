@@ -10,11 +10,11 @@ import (
 
 func main() {
 	agrs := &agent.AgentArguments{
-		WorkingDir:     ".",
+		WorkingDir:     "d:/golua-agent-test/test",
 		ScriptFileName: "script.lua",
 
 		ScriptInvterval: 60,
-		ServerURL:       "https://baobei.llwant.com/test/script.lua",
+		ServerURL:       "http://localhost:8080/update/lua",
 	}
 
 	agent, err := agent.New(agrs)
@@ -22,7 +22,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	ctx, fn := context.WithTimeout(context.TODO(), time.Second*60)
+	ctx, fn := context.WithTimeout(context.TODO(), time.Second*10000)
 	defer fn()
 
 	agent.Run(ctx)

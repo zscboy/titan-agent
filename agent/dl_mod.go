@@ -8,6 +8,8 @@ import (
 	"os"
 	"time"
 
+	log "github.com/sirupsen/logrus"
+
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -61,7 +63,7 @@ func (dm *DownloadModule) createDownloadStub(L *lua.LState) int {
 	url := L.CheckString(3)
 	timeout := L.CheckInt64(4)
 	callback := L.CheckString(5)
-	fmt.Println("tag ", tag, " filePath ", filePath, " url ", url, " timeout ", timeout, " callback ", callback)
+	// fmt.Println("tag ", tag, " filePath ", filePath, " url ", url, " timeout ", timeout, " callback ", callback)
 	if !dm.owner.hasLuaFunction(callback) {
 		return 0
 	}
@@ -76,6 +78,7 @@ func (dm *DownloadModule) createDownloadStub(L *lua.LState) int {
 
 	_, exist := dm.downloaderMap[tag]
 	if exist {
+		log.Infof("downloader %s already exit", tag)
 		return 0
 	}
 
@@ -99,11 +102,12 @@ func (dm *DownloadModule) createDownloadStub(L *lua.LState) int {
 			dv.err = err.Error()
 		} else {
 			md5, err := fileMD5(filePath)
-			if err != nil {
+			if err == nil {
 				dv.md5 = md5
 			}
 		}
 
+		// remove downlaoder
 		dm.owner.pushEvt(dv)
 	}()
 
@@ -160,7 +164,7 @@ func (downloader *Downloader) donwloadFile(filePath, url string) error {
 
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("LuaManager.loadLuaScriptFromServer status code: %d, msg: %s", resp.StatusCode, string(body))
+		return fmt.Errorf("Downloader.downloadFile status code: %d, msg: %s, url: %s", resp.StatusCode, string(body), url)
 	}
 
 	file, err := os.Create(filePath)

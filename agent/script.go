@@ -2,6 +2,7 @@ package agent
 
 import (
 	log "github.com/sirupsen/logrus"
+	libs "github.com/vadv/gopher-lua-libs"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -22,6 +23,8 @@ type Script struct {
 	timerModule *TimerModule
 
 	downloadModule *DownloadModule
+
+	processModule *ProcessModule
 }
 
 func (s *Script) events() <-chan ScriptEvent {
@@ -76,8 +79,12 @@ func (s *Script) start() {
 	s.downloadModule = newDownloaderModule(s)
 	ls.PreloadModule("downloader", s.downloadModule.loader)
 
-	agentModule := newAgentModule(s.agent)
-	ls.PreloadModule("agent", agentModule.loader)
+	s.processModule = newProcessModule(s)
+	ls.PreloadModule("process", s.processModule.loader)
+
+	ls.PreloadModule("agent", newAgentModule(s.agent).loader)
+
+	libs.Preload(ls)
 
 	if s.modTable != nil {
 		// exec 'start' funciton in lua mod
@@ -133,6 +140,8 @@ func (s *Script) stop() {
 	s.timerModule = nil
 	s.downloadModule.clear()
 	s.downloadModule = nil
+	s.processModule.clear()
+	s.processModule = nil
 }
 
 func (s *Script) load(fileContent []byte) {
@@ -146,7 +155,7 @@ func (s *Script) load(fileContent []byte) {
 	ls.Push(fn)
 	err = ls.PCall(0, lua.MultRet, nil)
 	if err != nil {
-		log.Errorf("lstate load string failed:%v", err)
+		log.Errorf("lstate PCall failed:%v", err)
 		return
 	}
 
