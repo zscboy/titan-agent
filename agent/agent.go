@@ -33,17 +33,23 @@ type Agent struct {
 
 	args *AgentArguments
 
-	script *Script
+	devInfo *DevInfo
+	script  *Script
 
 	scriptFileMD5     string
 	scriptFileContent []byte
 }
 
+type UpdateConfig struct {
+	MD5 string `json:"md5"`
+	URL string `json:"url"`
+}
+
 func New(args *AgentArguments) (*Agent, error) {
 	agent := &Agent{
 		agentVersion: version,
-
-		args: args,
+		args:         args,
+		devInfo:      GetDevInfo(),
 	}
 
 	return agent, nil
@@ -96,33 +102,33 @@ func (a *Agent) Run(ctx context.Context) error {
 
 func (a *Agent) updateScriptFromServer() {
 	log.Info("updateScriptFromServer")
-	url, fileMD5, err := a.getScriptURLAndMD5FromServer()
+	updateConfig, err := a.getUpdateConfigFromServer()
 	if err != nil {
-		log.Errorf("updateScriptFromServer get script url and md5:%s", err.Error())
+		log.Errorf("updateScriptFromServer get update config: %s", err.Error())
 		return
 	}
 
-	if a.scriptFileMD5 == fileMD5 {
+	if a.scriptFileMD5 == updateConfig.MD5 {
 		return
 	}
 
-	buf, err := a.getScriptFromServer(url)
+	buf, err := a.getScriptFromServer(updateConfig.URL)
 	if err != nil {
 		log.Errorf("updateScriptFromServer get script:%s", err.Error())
 		return
 	}
 
 	newFileMD5 := fmt.Sprintf("%x", md5.Sum(buf))
-	if newFileMD5 != fileMD5 {
-		log.Errorf("Server file md5 not match")
+	if newFileMD5 != updateConfig.MD5 {
+		log.Errorf("Server script file md5 not match")
 		return
 	}
 
 	a.scriptFileContent = buf
-	a.scriptFileMD5 = fileMD5
+	a.scriptFileMD5 = updateConfig.MD5
 	a.updateScriptFile(buf)
 
-	log.Info("update script file, md5 ", fileMD5)
+	log.Info("update script file, md5 ", updateConfig.MD5)
 }
 
 func (a *Agent) currentScript() *Script {
@@ -153,46 +159,44 @@ func (a *Agent) loadLocal() {
 	a.scriptFileMD5 = fmt.Sprintf("%x", md5.Sum(b))
 }
 
-func (a *Agent) getScriptURLAndMD5FromServer() (string, string, error) {
-	// TODO: add id or more info
-	url := fmt.Sprintf("%s?version=%s&id=%s", a.args.ServerURL, a.agentVersion, "")
+func (a *Agent) getUpdateConfigFromServer() (*UpdateConfig, error) {
+	devInfoQuery := a.devInfo.ToURLQuery()
+	devInfoQuery.Add("version", a.agentVersion)
+	queryString := devInfoQuery.Encode()
+
+	url := fmt.Sprintf("%s?%s", a.args.ServerURL, queryString)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)
-		return "", "", fmt.Errorf("getScriptInfoFromServer status code: %d, msg: %s, url: %s", resp.StatusCode, string(body), url)
+		return nil, fmt.Errorf("getScriptInfoFromServer status code: %d, msg: %s, url: %s", resp.StatusCode, string(body), url)
 	}
 
 	// Read and handle the response
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
 
-	type Ret struct {
-		MD5 string `json:"md5"`
-		URL string `json:"url"`
-	}
-
-	ret := Ret{}
-	err = json.Unmarshal(body, &ret)
+	updateConfig := &UpdateConfig{}
+	err = json.Unmarshal(body, updateConfig)
 	if err != nil {
-		return "", "", nil
+		return nil, nil
 	}
-	return ret.URL, ret.MD5, nil
+	return updateConfig, nil
 }
 
 func (a *Agent) getScriptFromServer(url string) ([]byte, error) {

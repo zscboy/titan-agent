@@ -43,10 +43,9 @@ type CustomHandler struct {
 }
 
 func (h *CustomHandler) handleLuaUpdate(w http.ResponseWriter, r *http.Request) {
-	version := r.URL.Query().Get("version")
-	id := r.URL.Query().Get("id")
+	fmt.Printf("handleLuaUpdate, queryString %s\n", r.URL.RawQuery)
 
-	fmt.Printf("handleLuaUpdate, request agent version: %s, id %s\n", version, id)
+	version := r.URL.Query().Get("version")
 
 	var file *File = nil
 	for _, f := range h.config.LuaFileList {
@@ -71,14 +70,14 @@ func (h *CustomHandler) handleLuaUpdate(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *CustomHandler) handleBusinessUpdate(w http.ResponseWriter, r *http.Request) {
-	version := r.URL.Query().Get("version")
-	id := r.URL.Query().Get("id")
+	fmt.Printf("handleBusinessUpdate, queryString %s\n", r.URL.RawQuery)
 
-	fmt.Printf("handleBusinessUpdate, request agent version: %s, id %s\n", version, id)
+	version := r.URL.Query().Get("version")
+	os := r.URL.Query().Get("os")
 
 	var file *File = nil
 	for _, f := range h.config.BusinessFileList {
-		if f.Version == version {
+		if f.Version == version && f.OS == os {
 			file = f
 			break
 		}

@@ -90,6 +90,8 @@ func (dm *DownloadModule) createDownloadStub(L *lua.LState) int {
 		ctxCancelFn: ctxCancelFn,
 	}
 
+	dm.downloaderMap[tag] = downloader
+
 	go func() {
 		err := downloader.donwloadFile(filePath, url)
 		dv := &DownloadEvent{
@@ -107,11 +109,9 @@ func (dm *DownloadModule) createDownloadStub(L *lua.LState) int {
 			}
 		}
 
-		// remove downlaoder
 		dm.owner.pushEvt(dv)
 	}()
 
-	dm.downloaderMap[tag] = downloader
 	return 0
 }
 
@@ -138,9 +138,8 @@ func (dm *DownloadModule) clear() {
 	dm.downloaderMap = make(map[string]*Downloader)
 }
 
-func (dm *DownloadModule) hasDownloader(tag string) bool {
-	_, ok := dm.downloaderMap[tag]
-	return ok
+func (dm *DownloadModule) delete(tag string) {
+	delete(dm.downloaderMap, tag)
 }
 
 type Downloader struct {

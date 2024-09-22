@@ -100,7 +100,7 @@ function mod.loadprocessInfo(filePath)
         return process
     end
 
-    print("exec version stdout "..result.stdout)
+    print("exec version stdout"..result.stdout)
     process.version = result.stdout
     return process
 end
@@ -143,7 +143,7 @@ function mod.startBusinessJob()
 
     local process = require("process")
     local filePath = mod.process.filePath
-    local cmdString = filePath.." -l 0.0.0.0:8000 -config "..mod.process.dir.."/config.json -fs "..mod.process.dir
+    local cmdString = filePath.." run --listen 0.0.0.0:8000 --config "..mod.process.dir.."/config.json --file-server "..mod.process.dir
     print("cmdString "..cmdString)
     local err = process.createProcess(mod.processName, cmdString)
     if err then
@@ -233,7 +233,7 @@ function mod.getURLAndMD5()
     local http = require("http")
     local client = http.client({timeout= 10})
 
-    local url = mod.serverURL.."?version="..mod.info.version.."&id="..mod.info.id
+    local url = mod.serverURL.."?version="..mod.info.version
     local request = http.request("GET", url)
     local result, err = client:do_request(request)
     if err then
@@ -294,6 +294,7 @@ end
 
 function mod.updateProcess(downloadResult)
     local agmod = require("agent")
+    local goos = require("goos")
 
     local outputDir = mod.info.wdir.."/business-extra"
     local err agmod.extractZip(downloadResult.filePath, outputDir)
@@ -304,6 +305,12 @@ function mod.updateProcess(downloadResult)
 
     if not mod.process or mod.process.ab == "B" then
         local dest = mod.info.wdir.."/A"
+        local err = goos.mkdir_all(dest)
+        if err then
+            print("mkdir "..dest.." failed "..failed)
+            return
+        end
+
         local err = agmod.copyDir(outputDir, dest)
         if err then
             print("copy "..outputDir.." to "..dest.." failed "..err)

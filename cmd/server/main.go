@@ -2,32 +2,101 @@ package main
 
 import (
 	"agent/server"
-	"flag"
 	"fmt"
+	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+
+	"github.com/urfave/cli/v2"
 )
 
-func main() {
-	var listenAddress string
-	var configFilePath string
-	var fileDir string
-	flag.StringVar(&listenAddress, "l", "0.0.0.0:8080", "Listen address")
-	flag.StringVar(&configFilePath, "config", "./config.json", "The path of config file")
-	flag.StringVar(&fileDir, "fs", "./file", "The path of lua script dir")
-	flag.Parse()
+const version = "0.1.0"
 
-	config, err := server.ParseConfig(configFilePath)
-	if err != nil {
-		fmt.Printf("parse config failed:%s\n", err.Error())
-		return
+var versionCmd = &cli.Command{
+	Name: "version",
+	Before: func(cctx *cli.Context) error {
+		return nil
+	},
+	Action: func(cctx *cli.Context) error {
+		fmt.Println(version)
+		return nil
+	},
+}
+
+var runCmd = &cli.Command{
+	Name:  "run",
+	Usage: "run agent server",
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:  "listen",
+			Usage: "--listen=0.0.0.0:8080",
+			Value: "0.0.0.0:8080",
+		},
+		&cli.StringFlag{
+			Name:  "file-server",
+			Usage: "--file-server ./my-file-server",
+			Value: "./",
+		},
+		&cli.StringFlag{
+			Name:  "config",
+			Usage: "--config ./config.json",
+			Value: "./config.json",
+		},
+	},
+
+	Before: func(cctx *cli.Context) error {
+		return nil
+	},
+	Action: func(cctx *cli.Context) error {
+		listenAddress := cctx.String("listen")
+		configFilePath := cctx.String("config")
+		fileServerDir := cctx.String("file-server")
+
+		config, err := server.ParseConfig(configFilePath)
+		if err != nil {
+			return err
+		}
+
+		_ = config
+		mux := server.NewCustomServerMux(config)
+
+		http.Handle("/", http.FileServer(http.Dir(fileServerDir)))
+
+		// Start the server
+		fmt.Println("Starting server on ", listenAddress)
+		go http.ListenAndServe(listenAddress, mux)
+
+		// Create a channel to receive OS signals
+		sigChannel := make(chan os.Signal, 1)
+
+		// Notify the channel on interrupt (Ctrl+C), kill, or terminate signals
+		signal.Notify(sigChannel, syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL)
+
+		// Block until a signal is received
+		sig := <-sigChannel
+
+		// Print the received signal and gracefully exit
+		fmt.Printf("Received signal: %s\n", sig)
+		fmt.Println("Exiting gracefully...")
+		return nil
+	},
+}
+
+func main() {
+	commands := []*cli.Command{
+		runCmd,
+		versionCmd,
 	}
 
-	_ = config
-	mux := server.NewCustomServerMux(config)
+	app := &cli.App{
+		Name:     "agent",
+		Usage:    "Manager and update business process",
+		Commands: commands,
+	}
 
-	http.Handle("/", http.FileServer(http.Dir(fileDir)))
-
-	// Start the server
-	fmt.Println("Starting server on ", listenAddress)
-	http.ListenAndServe(listenAddress, mux)
+	if err := app.Run(os.Args); err != nil {
+		log.Fatal(err)
+	}
 }

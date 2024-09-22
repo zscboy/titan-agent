@@ -14,6 +14,7 @@ type File struct {
 	Version string `json:"version"`
 	MD5     string `json:"md5"`
 	URL     string `json:"url"`
+	OS      string `json:"os"`
 }
 
 func ParseConfig(filePath string) (*Config, error) {

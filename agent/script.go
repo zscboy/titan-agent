@@ -44,7 +44,8 @@ func (s *Script) handleEvent(evt ScriptEvent) {
 		}
 	case "download":
 		e := evt.(*DownloadEvent)
-		if e != nil && s.downloadModule.hasDownloader(e.tag) {
+		if e != nil {
+			s.downloadModule.delete(e.tag)
 			t := s.state.NewTable()
 			t.RawSet(lua.LString("tag"), lua.LString(e.tag))
 			t.RawSet(lua.LString("filePath"), lua.LString(e.filePath))
@@ -52,6 +53,12 @@ func (s *Script) handleEvent(evt ScriptEvent) {
 			t.RawSet(lua.LString("err"), lua.LString(e.err))
 			s.callModFunction1(e.callback, t)
 		}
+	case "process":
+		e := evt.(*ProcessEvent)
+		if e != nil {
+			s.processModule.delete(e.name)
+		}
+
 	}
 }
 

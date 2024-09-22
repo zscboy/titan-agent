@@ -1,0 +1,33 @@
+{
+    "luaList":[
+        {
+            "version":"0.1.0",
+            "md5":"702832f9902ac3d372a721dadff03ba7", 
+            "url":"http://192.168.0.154:8080/script2.lua",
+            "os": "windows"
+        },
+        {
+            "version":"0.1.0",
+            "md5":"1a4580f23a7857bbc6584d8f55f15fa3", 
+            "url":"http://192.168.0.154:8080/script.lua",
+            "os": "linux"
+        }
+    ],
+
+    "businessList":[
+        {
+            "version":"0.1.0",
+            "md5":"2dd3c4399fa21bfde740dbfe6853d966", 
+            "url":"http://192.168.0.154:8080/business-windows.zip",
+            "os": "windows"
+        },
+        {
+            "version":"0.1.0",
+            "md5":"f62ee56d38309c42a2f181e9ecdcb4e8", 
+            "url":"http://192.168.0.154:8080/business-android.zip",
+            "os": "android"
+        }
+    ]
+
+
+}

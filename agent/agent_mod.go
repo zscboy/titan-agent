@@ -2,14 +2,20 @@ package agent
 
 import (
 	"archive/zip"
+	"bytes"
 	"crypto/md5"
 	"encoding/hex"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
+	"strings"
+	"syscall"
+	"time"
 
 	"github.com/bodgit/sevenzip"
 	lua "github.com/yuin/gopher-lua"
@@ -37,6 +43,8 @@ func (am *AgentModule) loader(L *lua.LState) int {
 		"copyDir":        am.copyDir,
 		"removeAll":      am.removeAll,
 		"execWithDetach": am.execWithDetach,
+		"chmod":          am.chmod,
+		"exec":           am.exec,
 	}
 
 	mod := L.SetFuncs(L.NewTable(), exports)
@@ -82,10 +90,9 @@ func fileMD5(filePath string) (string, error) {
 }
 
 func (am *AgentModule) info(L *lua.LState) int {
-	t := L.NewTable()
+	t := am.agent.devInfo.ToLuaTable(L)
 	t.RawSet(lua.LString("wdir"), lua.LString(am.agent.args.WorkingDir))
 	t.RawSet(lua.LString("version"), lua.LString(am.agent.Version()))
-	t.RawSet(lua.LString("id"), lua.LString(am.agent.ID()))
 
 	L.Push(t)
 	return 1
@@ -199,6 +206,7 @@ func extractZipFile(file *zip.File, outputDir string) error {
 	if err != nil {
 		return err
 	}
+	defer outFile.Close()
 
 	_, err = io.Copy(outFile, rc)
 	return err
@@ -301,4 +309,92 @@ func (am *AgentModule) execWithDetach(L *lua.LState) int {
 	L.Push(lua.LNil)
 	return 1
 
+}
+
+func (am *AgentModule) chmod(L *lua.LState) int {
+	filePath := L.CheckString(1)
+	modeStr := L.CheckString(2)
+
+	// conver to octor
+	mode, err := strconv.ParseInt(modeStr, 8, 64)
+	if err != nil {
+		L.Push(lua.LString(fmt.Sprintf("Error parsing mode: %v", err)))
+		return 1
+	}
+
+	err = os.Chmod(filePath, fs.FileMode(mode))
+	if err != nil {
+		L.Push(lua.LString(err.Error()))
+		return 1
+	}
+
+	return 0
+}
+
+// Exec lua cmd.exec(command) return ({status=0, stdout="", stderr=""}, err)
+func (am *AgentModule) exec(L *lua.LState) int {
+	command := L.CheckString(1)
+	timeout := time.Duration(L.OptInt64(2, ExecTimeout)) * time.Second
+
+	args := strings.Split(command, " ")
+	newArgs := make([]string, 0, len(args))
+	for _, arg := range args {
+		arg = strings.TrimSpace(arg)
+		if len(arg) != 0 {
+			newArgs = append(newArgs, arg)
+		}
+	}
+
+	if len(newArgs) == 0 {
+		L.Push(lua.LNil)
+		L.Push(lua.LString("args can not emtpy"))
+		return 2
+	}
+
+	var cmd *exec.Cmd
+	if len(newArgs) > 1 {
+		cmd = exec.Command(newArgs[0], newArgs[1:]...)
+	} else {
+		cmd = exec.Command(newArgs[0])
+	}
+
+	stdout, stderr := bytes.Buffer{}, bytes.Buffer{}
+	cmd.Stderr = &stderr
+	cmd.Stdout = &stdout
+
+	if err := cmd.Start(); err != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	done := make(chan error)
+	go func() {
+		done <- cmd.Wait()
+	}()
+
+	select {
+	case <-time.After(timeout):
+		go cmd.Process.Kill()
+		L.Push(lua.LNil)
+		L.Push(lua.LString(`execute timeout`))
+		return 2
+	case err := <-done:
+		result := L.NewTable()
+		L.SetField(result, "stdout", lua.LString(stdout.String()))
+		L.SetField(result, "stderr", lua.LString(stderr.String()))
+		L.SetField(result, "status", lua.LNumber(-1))
+
+		if err != nil {
+			if exiterr, ok := err.(*exec.ExitError); ok {
+				if status, ok := exiterr.Sys().(syscall.WaitStatus); ok {
+					L.SetField(result, "status", lua.LNumber(int64(status.ExitStatus())))
+				}
+			}
+		} else {
+			L.SetField(result, "status", lua.LNumber(0))
+		}
+		L.Push(result)
+		return 1
+	}
 }
