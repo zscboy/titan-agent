@@ -13,6 +13,7 @@ import (
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/host"
 	"github.com/shirou/gopsutil/v3/mem"
+	"github.com/shirou/gopsutil/v3/net"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -23,6 +24,8 @@ type DevInfo struct {
 	PlatformVersion string
 	BootTime        int64
 	Arch            string
+
+	Macs string
 
 	CPUModuleName   string
 	CPUCores        int
@@ -48,6 +51,13 @@ func GetDevInfo() *DevInfo {
 	devInfo.PlatformVersion = info.PlatformVersion
 	devInfo.BootTime = int64(info.BootTime)
 	devInfo.Arch = info.KernelArch
+
+	var macs = ""
+	interfaces, _ := net.Interfaces()
+	for _, interf := range interfaces {
+		macs += fmt.Sprintf("%s:%s,", interf.Name, interf.HardwareAddr)
+	}
+	devInfo.Macs = strings.TrimSuffix(macs, ",")
 
 	// cpu info
 	cpuInfo, err := cpu.Info()
@@ -164,12 +174,17 @@ func (devInfo *DevInfo) ToURLQuery() url.Values {
 	query.Add("platformVersion", devInfo.PlatformVersion)
 	query.Add("bootTime", fmt.Sprintf("%d", devInfo.BootTime))
 	query.Add("arch", devInfo.Arch)
+
+	query.Add("macs", devInfo.Macs)
+
 	query.Add("cpuModuleName", devInfo.CPUModuleName)
 	query.Add("cpuCores", fmt.Sprintf("%d", devInfo.CPUCores))
 	query.Add("cpuMhz", fmt.Sprintf("%f", devInfo.CPUMhz))
+
 	query.Add("totalmemory", fmt.Sprintf("%d", devInfo.TotalMemory))
 	query.Add("usedMemory", fmt.Sprintf("%d", devInfo.UsedMemory))
 	query.Add("availableMemory", fmt.Sprintf("%d", devInfo.AvailableMemory))
+
 	query.Add("baseboard", devInfo.Baseboard)
 
 	query.Add("uuid", devInfo.UUID)
@@ -186,12 +201,17 @@ func (devInfo *DevInfo) ToLuaTable(L *lua.LState) *lua.LTable {
 	t.RawSet(lua.LString("platformVersion"), lua.LString(devInfo.PlatformVersion))
 	t.RawSet(lua.LString("bootTime"), lua.LNumber(devInfo.BootTime))
 	t.RawSet(lua.LString("arch"), lua.LString(devInfo.Arch))
+
+	t.RawSet(lua.LString("macs"), lua.LString(devInfo.Macs))
+
 	t.RawSet(lua.LString("cpuModuleName"), lua.LString(devInfo.CPUModuleName))
 	t.RawSet(lua.LString("cpuCores"), lua.LNumber(devInfo.CPUCores))
 	t.RawSet(lua.LString("cpuMhz"), lua.LNumber(devInfo.CPUMhz))
+
 	t.RawSet(lua.LString("totalmemory"), lua.LNumber(devInfo.TotalMemory))
 	t.RawSet(lua.LString("usedMemory"), lua.LNumber(devInfo.UsedMemory))
 	t.RawSet(lua.LString("availableMemory"), lua.LNumber(devInfo.AvailableMemory))
+
 	t.RawSet(lua.LString("baseboard"), lua.LString(devInfo.Baseboard))
 
 	t.RawSet(lua.LString("uuid"), lua.LString(devInfo.UUID))

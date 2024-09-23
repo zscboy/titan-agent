@@ -91,8 +91,11 @@ func fileMD5(filePath string) (string, error) {
 
 func (am *AgentModule) info(L *lua.LState) int {
 	t := am.agent.devInfo.ToLuaTable(L)
-	t.RawSet(lua.LString("wdir"), lua.LString(am.agent.args.WorkingDir))
+	t.RawSet(lua.LString("workingDir"), lua.LString(am.agent.args.WorkingDir))
 	t.RawSet(lua.LString("version"), lua.LString(am.agent.Version()))
+	t.RawSet(lua.LString("serverURL"), lua.LString(am.agent.args.ServerURL))
+	t.RawSet(lua.LString("scriptFileName"), lua.LString(am.agent.args.ScriptFileName))
+	t.RawSet(lua.LString("scriptInvterval"), lua.LNumber(am.agent.args.ScriptInvterval))
 
 	L.Push(t)
 	return 1

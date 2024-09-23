@@ -29,7 +29,6 @@ type AgentArguments struct {
 
 type Agent struct {
 	agentVersion string
-	id           string
 
 	args *AgentArguments
 
@@ -57,10 +56,6 @@ func New(args *AgentArguments) (*Agent, error) {
 
 func (a *Agent) Version() string {
 	return a.agentVersion
-}
-
-func (a *Agent) ID() string {
-	return a.id
 }
 
 func (a *Agent) Run(ctx context.Context) error {
