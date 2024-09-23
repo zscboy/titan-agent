@@ -66,13 +66,18 @@ var runCmd = &cli.Command{
 
 		// Start the server
 		fmt.Println("Starting server on ", listenAddress)
-		go http.ListenAndServe(listenAddress, mux)
+		go func() {
+			err := http.ListenAndServe(listenAddress, mux)
+			if err != nil {
+				fmt.Println("Start server failed ", err.Error())
+			}
+		}()
 
 		// Create a channel to receive OS signals
 		sigChannel := make(chan os.Signal, 1)
 
 		// Notify the channel on interrupt (Ctrl+C), kill, or terminate signals
-		signal.Notify(sigChannel, syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL)
+		signal.Notify(sigChannel, syscall.SIGINT, syscall.SIGTERM)
 
 		// Block until a signal is received
 		sig := <-sigChannel
