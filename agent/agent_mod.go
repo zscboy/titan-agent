@@ -11,7 +11,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -153,6 +152,7 @@ func extract7zFile(file *sevenzip.File, outputDir string) error {
 	if err != nil {
 		return err
 	}
+	defer outFile.Close()
 
 	_, err = io.Copy(outFile, rc)
 	return err
@@ -282,22 +282,37 @@ func (am *AgentModule) removeAll(L *lua.LState) int {
 
 func (am *AgentModule) execWithDetach(L *lua.LState) int {
 	command := L.CheckString(1)
-	// timeout := time.Duration(L.OptInt64(2, ExecTimeout)) * time.Second
-	var cmd *exec.Cmd
+	envStr := L.CheckString(2)
 
-	switch runtime.GOOS {
-	case "linux", "darwin":
-		cmd = exec.Command("sh", "-c", command)
-	case "windows":
-		cmd = exec.Command("cmd.exe", "/C", command)
-	default:
-		L.Push(lua.LString(`unsupported os`))
+	args := strings.Split(command, " ")
+	newArgs := make([]string, 0, len(args))
+	for _, arg := range args {
+		arg = strings.TrimSpace(arg)
+		if len(arg) != 0 {
+			newArgs = append(newArgs, arg)
+		}
+	}
+
+	if len(newArgs) == 0 {
+		L.Push(lua.LString("args can not emtpy"))
 		return 1
 	}
 
-	cmd.Stdin = nil
-	cmd.Stdout = nil
-	cmd.Stderr = nil
+	var env = []string{}
+	if len(envStr) > 0 {
+		env = strings.Split(envStr, " ")
+	}
+
+	var cmd *exec.Cmd
+	if len(newArgs) > 1 {
+		cmd = exec.Command(newArgs[0], newArgs[1:]...)
+	} else {
+		cmd = exec.Command(newArgs[0])
+	}
+
+	cmd.Env = env
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
 
 	if err := cmd.Start(); err != nil {
 		L.Push(lua.LString(err.Error()))
@@ -309,9 +324,7 @@ func (am *AgentModule) execWithDetach(L *lua.LState) int {
 		return 1
 	}
 
-	L.Push(lua.LNil)
-	return 1
-
+	return 0
 }
 
 func (am *AgentModule) chmod(L *lua.LState) int {

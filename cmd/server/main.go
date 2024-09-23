@@ -91,7 +91,7 @@ func main() {
 	}
 
 	app := &cli.App{
-		Name:     "agent",
+		Name:     "server",
 		Usage:    "Manager and update business process",
 		Commands: commands,
 	}
