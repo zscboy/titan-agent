@@ -61,15 +61,17 @@ func (dm *DownloadModule) createDownloadStub(L *lua.LState) int {
 	tag := L.CheckString(1)
 	filePath := L.CheckString(2)
 	url := L.CheckString(3)
-	timeout := L.CheckInt64(4)
-	callback := L.CheckString(5)
+	callback := L.CheckString(4)
+	timeout := L.CheckInt64(5)
 	// fmt.Println("tag ", tag, " filePath ", filePath, " url ", url, " timeout ", timeout, " callback ", callback)
 	if !dm.owner.hasLuaFunction(callback) {
-		return 0
+		L.Push(lua.LString(fmt.Sprintf("Func %s not exist", callback)))
+		return 1
 	}
 
 	if len(tag) < 1 {
-		return 0
+		L.Push(lua.LString("Must set tag"))
+		return 1
 	}
 
 	if timeout <= 0 {
@@ -79,7 +81,8 @@ func (dm *DownloadModule) createDownloadStub(L *lua.LState) int {
 	_, exist := dm.downloaderMap[tag]
 	if exist {
 		log.Infof("downloader %s already exit", tag)
-		return 0
+		L.Push(lua.LString(fmt.Sprintf("Download task %s already exist", tag)))
+		return 1
 	}
 
 	ctx, ctxCancelFn := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
@@ -101,7 +104,7 @@ func (dm *DownloadModule) createDownloadStub(L *lua.LState) int {
 		}
 
 		if err != nil {
-			dv.err = err.Error()
+			dv.err = fmt.Sprintf("Download failed:%s, url:%s", err.Error(), url)
 		} else {
 			md5, err := fileMD5(filePath)
 			if err == nil {

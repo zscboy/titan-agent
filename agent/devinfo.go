@@ -91,7 +91,7 @@ func GetDevInfo() *DevInfo {
 }
 
 func (devInfo *DevInfo) getAndroidID() {
-	if runtime.GOOS != "linux" {
+	if runtime.GOOS != "linux" && runtime.GOOS != "android" {
 		return
 	}
 
@@ -105,7 +105,7 @@ func (devInfo *DevInfo) getAndroidID() {
 }
 
 func (devInfo *DevInfo) getUUID() {
-	if runtime.GOOS != "linux" {
+	if runtime.GOOS != "linux" && runtime.GOOS != "android" {
 		return
 	}
 
@@ -118,7 +118,7 @@ func (devInfo *DevInfo) getUUID() {
 }
 
 func (devInfo *DevInfo) getAndroidSerialNumber() {
-	if runtime.GOOS != "linux" {
+	if runtime.GOOS != "linux" && runtime.GOOS != "android" {
 		return
 	}
 
@@ -133,7 +133,7 @@ func (devInfo *DevInfo) getAndroidSerialNumber() {
 func runCmd(command string) (string, error) {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
-	case "linux", "darwin":
+	case "linux", "darwin", "android":
 		cmd = exec.Command("sh", "-c", command)
 	case "windows":
 		cmd = exec.Command("cmd.exe", "/C", command)
