@@ -51,6 +51,11 @@ func New(args *AgentArguments) (*Agent, error) {
 		devInfo:      GetDevInfo(),
 	}
 
+	err := os.MkdirAll(args.WorkingDir, os.ModePerm)
+	if err != nil {
+		return nil, err
+	}
+
 	return agent, nil
 }
 
@@ -161,7 +166,7 @@ func (a *Agent) getUpdateConfigFromServer() (*UpdateConfig, error) {
 
 	url := fmt.Sprintf("%s?%s", a.args.ServerURL, queryString)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
@@ -195,7 +200,7 @@ func (a *Agent) getUpdateConfigFromServer() (*UpdateConfig, error) {
 }
 
 func (a *Agent) getScriptFromServer(url string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
