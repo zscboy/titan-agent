@@ -15,7 +15,8 @@ import (
 )
 
 const (
-	version = "0.1.0"
+	version     = "0.1.0"
+	httpTimeout = 10 * time.Second
 )
 
 type AgentArguments struct {
@@ -166,7 +167,7 @@ func (a *Agent) getUpdateConfigFromServer() (*UpdateConfig, error) {
 
 	url := fmt.Sprintf("%s?%s", a.args.ServerURL, queryString)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), httpTimeout)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
@@ -200,7 +201,7 @@ func (a *Agent) getUpdateConfigFromServer() (*UpdateConfig, error) {
 }
 
 func (a *Agent) getScriptFromServer(url string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), httpTimeout)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
@@ -229,6 +230,11 @@ func (a *Agent) getScriptFromServer(url string) ([]byte, error) {
 }
 
 func (a *Agent) updateScriptFile(scriptContent []byte) error {
+	err := os.MkdirAll(a.args.WorkingDir, os.ModePerm)
+	if err != nil {
+		return err
+	}
+
 	filePath := path.Join(a.args.WorkingDir, a.args.ScriptFileName)
 	f, err := os.OpenFile(filePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
 	if err != nil {

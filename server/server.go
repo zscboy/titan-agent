@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -12,11 +13,12 @@ type CustomServeMux struct {
 }
 
 func NewCustomServerMux(config *Config) *CustomServeMux {
-	handler := CustomHandler{config: config}
+	handler := CustomHandler{config: config, devMgr: newDevMgr(context.Background())}
 
 	mux := &CustomServeMux{routes: make(map[string]http.Handler)}
 	mux.Handle("/update/lua", http.HandlerFunc(handler.handleLuaUpdate))
 	mux.Handle("/update/business", http.HandlerFunc(handler.handleBusinessUpdate))
+	mux.Handle("/device/list", http.HandlerFunc(handler.handleDeviceList))
 
 	return mux
 }
@@ -40,10 +42,16 @@ func (mux *CustomServeMux) Handle(pattern string, handler http.Handler) {
 type CustomHandler struct {
 	// luaDir string
 	config *Config
+	devMgr *DevMgr
 }
 
 func (h *CustomHandler) handleLuaUpdate(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("handleLuaUpdate, queryString %s\n", r.URL.RawQuery)
+
+	d := NewDeviceFromURLQuery(r.URL.Query())
+	if d != nil {
+		h.devMgr.updateDevice(d)
+	}
 
 	version := r.URL.Query().Get("version")
 
@@ -89,6 +97,17 @@ func (h *CustomHandler) handleBusinessUpdate(w http.ResponseWriter, r *http.Requ
 	}
 
 	buf, err := json.Marshal(file)
+	if err != nil {
+		resultError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	w.Write(buf)
+}
+
+func (h *CustomHandler) handleDeviceList(w http.ResponseWriter, r *http.Request) {
+	devices := h.devMgr.getAll()
+	buf, err := json.Marshal(devices)
 	if err != nil {
 		resultError(w, http.StatusBadRequest, err.Error())
 		return
