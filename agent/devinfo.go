@@ -105,10 +105,16 @@ func (devInfo *DevInfo) getAndroidID() {
 }
 
 func (devInfo *DevInfo) getUUID() {
-	if runtime.GOOS != "linux" && runtime.GOOS != "android" {
+	// get windows uuid
+	if runtime.GOOS == "windows" {
+		uuid, err := getWindowsUUID()
+		if err == nil {
+			devInfo.UUID = uuid
+		}
 		return
 	}
 
+	// get androi,linux,darwin uuid
 	serialno, err := runCmd("cat /proc/sys/kernel/random/uuid")
 	if err != nil {
 		return
@@ -128,6 +134,23 @@ func (devInfo *DevInfo) getAndroidSerialNumber() {
 	}
 
 	devInfo.AndroidSerialNumber = uuid
+}
+
+func getWindowsUUID() (string, error) {
+	cmd := exec.Command("wmic", "csproduct", "get", "uuid")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+
+	result := strings.TrimSpace(string(output))
+	lines := strings.Split(result, "\n")
+	if len(lines) > 1 {
+
+		return strings.TrimSpace(lines[1]), nil
+	}
+
+	return "", fmt.Errorf("UUID not found")
 }
 
 func runCmd(command string) (string, error) {
