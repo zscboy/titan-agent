@@ -8,7 +8,7 @@ import (
 
 const (
 	keepaliveInterval = 30 * time.Second
-	offlineTime       = 60 * time.Second
+	offlineTime       = 120 * time.Second
 )
 
 type DevMgr struct {
