@@ -8,7 +8,7 @@ setup_env() {
         exit 1
     fi
 
-    if [ "$TITAN_CHANNEL" != "titan-l1" ] && [ "$TITAN_CHANNEL" != "titan-l2" ] && [ "$TITAN_CHANNEL" != "titan-l3" ]; then
+    if [ "$TITAN_CHANNEL" != "titan-l1" ] && [ "$TITAN_CHANNEL" != "titan-l2" ] && [ "$TITAN_CHANNEL" != "titan-l3" ] && [ "$TITAN_CHANNEL" != "kvm" ]; then
         echo "TITAN_CHANNEL $TITAN_CHANNEL not exist"
         exit 1
     fi
@@ -18,8 +18,8 @@ setup_env() {
     fi
 
     if [ ! -d "$TITAN_WORKING_DIR" ]; then
-        echo "titan agent working dir $TITAN_WORKING_DIR not exist"
-        exit 1
+        echo "new dir $TITAN_WORKING_DIR"
+        mkdir -p $TITAN_WORKING_DIR
     fi
 
     echo "TITAN_CHANNEL=$TITAN_CHANNEL"
@@ -39,7 +39,7 @@ uninstall_titan_agent() {
 
 install_titan_agent_file() {
     ### download package
-    wget https://github.com/zscboy/titan-agent/releases/download/0.1.1/titan-agent-0.1.1.tar.gz
+    wget https://agent.titannet.io/titan-agent-0.1.1.tar.gz
 
     ### decompress package
     tar -xvf titan-agent-0.1.1.tar.gz -C /usr/local/
