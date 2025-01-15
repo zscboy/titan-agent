@@ -61,7 +61,7 @@ end
 
 function mod.downloadScript(url, filePath) 
     local http = require("http")
-    local client = http.client({timeout= 10})
+    local client = http.client({timeout= 300})
 
     -- local url = mod.serverURL.."?version="..mod.info.version.."&os="..mod.info.os.."&uuid="..mod.info.uuid
     local request = http.request("GET", url)
@@ -128,6 +128,11 @@ function mod.onTimerMonitor()
         metric.runErr = mod.runErr
     end
 
+    local service = mod.getService()
+    if service then
+        metric.service = service
+    end
+
     mod.sendMetrics(metric)
 end
 
@@ -142,6 +147,20 @@ function mod.sendMetrics(metrics)
 
     metric.send(jsonString)
 
+end
+
+function mod.getService()
+    local agent = require("agent")
+    local result, err = agent.runBashCmd("cat /usr/local/frp/frpc.service")
+    if err then
+       mod.print("cat:"..err)
+       return err
+   end
+
+   if result.status ~= 0 then
+    return "cat status:"..result.status
+   end
+   return result.stdout 
 end
 
 function mod.isFrpClientInstall()
@@ -207,7 +226,7 @@ function mod.installFrpClient()
     end
 
     local agmod = require("agent")
-    local result, err = agmod.exec(mod.installFrpScriptPath,300)
+    local result, err = agmod.runBashCmd(mod.installFrpScriptPath,600)
     if err then
         return err
     end
