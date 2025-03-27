@@ -192,7 +192,7 @@ function mod.startKubeAndJoinCluster()
         return result.stderr
     end
 
-    if result.stdout and result.stdout != "" then
+    if result.stdout and result.stdout ~= "" then
         mod.print("start kube successed: ", result.stdout)
     end
 

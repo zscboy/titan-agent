@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"log"
 	"net/url"
 	"os/exec"
 	"runtime"
@@ -18,6 +19,7 @@ import (
 	"github.com/shirou/gopsutil/v3/mem"
 	"github.com/shirou/gopsutil/v3/net"
 	lua "github.com/yuin/gopher-lua"
+	"golang.org/x/exp/constraints"
 )
 
 // Used by agent
@@ -28,6 +30,7 @@ type AgentInfo struct {
 	ScriptFileName  string
 	ScriptInvterval int
 	Channel         string
+	ControllerKey   string
 }
 
 // Used by controller
@@ -52,16 +55,26 @@ type BaseInfo struct {
 	platformVersion string
 	bootTime        int64
 	arch            string
+	version         string
 
 	macs string
 
-	cpuModuleName   string
-	cpuCores        int
-	cpuMhz          float64
+	cpuModuleName string
+	cpuCores      int
+	cpuMhz        float64
+	cpuUsage      float64
+
+	gpu string
+
 	totalMemory     int64
 	usedMemory      int64
 	availableMemory int64
-	baseboard       string
+	memoryModel     string
+
+	netIRate float64
+	netORate float64
+
+	baseboard string
 
 	uuid                string
 	androidID           string
@@ -69,26 +82,37 @@ type BaseInfo struct {
 
 	totalDisk int64
 	freeDisk  int64
+	diskModel string
 
 	agentInfo *AgentInfo
 
 	appInfo *AppInfo
+
+	webServer string
 }
 
 func NewBaseInfo(agentInfo *AgentInfo, appInfo *AppInfo) *BaseInfo {
-	info, _ := host.Info()
+	info, err := host.Info()
+	if err != nil {
+		log.Printf("Get host info failed: %v", err)
+	}
 
-	baseInfo := &BaseInfo{agentInfo: agentInfo, appInfo: appInfo}
+	baseInfo := &BaseInfo{agentInfo: agentInfo, appInfo: appInfo, version: version}
 	// host info
-	baseInfo.hostName = info.Hostname
-	baseInfo.os = info.OS
-	baseInfo.platform = info.Platform
-	baseInfo.platformVersion = info.PlatformVersion
-	baseInfo.bootTime = int64(info.BootTime)
-	baseInfo.arch = info.KernelArch
+	if info != nil {
+		baseInfo.hostName = info.Hostname
+		baseInfo.os = info.OS
+		baseInfo.platform = info.Platform
+		baseInfo.platformVersion = info.PlatformVersion
+		baseInfo.bootTime = int64(info.BootTime)
+		baseInfo.arch = info.KernelArch
+	}
 
 	var macs = ""
-	interfaces, _ := net.Interfaces()
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		log.Printf("Get interfaces failed: %v", err)
+	}
 	for _, interf := range interfaces {
 		macs += fmt.Sprintf("%s:%s,", interf.Name, interf.HardwareAddr)
 	}
@@ -105,14 +129,58 @@ func NewBaseInfo(agentInfo *AgentInfo, appInfo *AppInfo) *BaseInfo {
 		}
 	}
 
-	// memory info
-	v, _ := mem.VirtualMemory()
-	baseInfo.totalMemory = int64(v.Total)
-	baseInfo.usedMemory = int64(v.Used)
-	baseInfo.availableMemory = int64(v.Available)
+	// gpu
+	gpuInfo, err := ghw.GPU()
+	if err != nil {
+		log.Printf("Get GPU info failed: %v", err)
+	}
+	if gpuInfo != nil && len(gpuInfo.GraphicsCards) > 0 {
+		last := gpuInfo.GraphicsCards[len(gpuInfo.GraphicsCards)-1]
+		if last.DeviceInfo != nil && last.DeviceInfo.Vendor != nil && last.DeviceInfo.Product != nil {
+			baseInfo.gpu = fmt.Sprintf("%s, %s", last.DeviceInfo.Vendor.ID, last.DeviceInfo.Product.Name)
+		}
+	}
 
-	baseboard, _ := ghw.Baseboard()
-	baseInfo.baseboard = fmt.Sprintf("Vendor:%s,Product:%s", baseboard.Vendor, baseboard.Product)
+	// memory info
+	memory, err := mem.VirtualMemory()
+	if err != nil {
+		log.Printf("Get memory info failed: %v", err)
+	}
+	if memory != nil {
+		baseInfo.totalMemory = int64(memory.Total)
+		baseInfo.usedMemory = int64(memory.Used)
+		baseInfo.availableMemory = int64(memory.Available)
+	}
+
+	// ram info
+	m, err := ghw.Memory()
+	if err != nil {
+		log.Printf("Get memory info failed: %v", err)
+	}
+	if m != nil && len(m.Modules) > 0 {
+		baseInfo.memoryModel = m.Modules[0].Vendor
+	}
+
+	// blk info
+	blk, err := ghw.Block()
+	if err != nil {
+		log.Printf("Get disk info failed: %v", err)
+	}
+	if blk != nil && len(blk.Disks) > 0 {
+		var disks []string
+		for _, d := range blk.Disks {
+			disks = append(disks, d.Model)
+		}
+		baseInfo.diskModel = strings.Join(disks, ", ")
+	}
+
+	baseboard, err := ghw.Baseboard()
+	if err != nil {
+		log.Printf("Get baseboard info failed: %v", err)
+	}
+	if baseboard != nil {
+		baseInfo.baseboard = fmt.Sprintf("Vendor:%s,Product:%s", baseboard.Vendor, baseboard.Product)
+	}
 
 	baseInfo.getAndroidID()
 	baseInfo.getUUID()
@@ -132,6 +200,10 @@ func (baseInfo *BaseInfo) getAndroidID() {
 	}
 
 	baseInfo.androidID = androidID
+}
+
+func (b *BaseInfo) IsBox() bool {
+	return isBox
 }
 
 func (baseInfo *BaseInfo) getUUID() {
@@ -280,16 +352,24 @@ func (baseInfo *BaseInfo) ToURLQuery() url.Values {
 	query.Add("platformVersion", baseInfo.platformVersion)
 	query.Add("bootTime", fmt.Sprintf("%d", baseInfo.bootTime))
 	query.Add("arch", baseInfo.arch)
+	query.Add("version", baseInfo.version)
 
 	query.Add("macs", baseInfo.macs)
 
 	query.Add("cpuModuleName", baseInfo.cpuModuleName)
 	query.Add("cpuCores", fmt.Sprintf("%d", baseInfo.cpuCores))
 	query.Add("cpuMhz", fmt.Sprintf("%f", baseInfo.cpuMhz))
+	query.Add("cpuUsage", fmt.Sprintf("%f", baseInfo.cpuUsage))
+
+	query.Add("gpu", baseInfo.gpu)
 
 	query.Add("totalmemory", fmt.Sprintf("%d", baseInfo.totalMemory))
 	query.Add("usedMemory", fmt.Sprintf("%d", baseInfo.usedMemory))
 	query.Add("availableMemory", fmt.Sprintf("%d", baseInfo.availableMemory))
+	query.Add("memoryModel", baseInfo.memoryModel)
+
+	query.Add("netIRate", fmt.Sprintf("%f", baseInfo.netIRate))
+	query.Add("netORate", fmt.Sprintf("%f", baseInfo.netORate))
 
 	query.Add("baseboard", baseInfo.baseboard)
 
@@ -299,6 +379,7 @@ func (baseInfo *BaseInfo) ToURLQuery() url.Values {
 
 	query.Add("totalDisk", fmt.Sprintf("%d", baseInfo.totalDisk))
 	query.Add("freeDisk", fmt.Sprintf("%d", baseInfo.freeDisk))
+	query.Add("diskModel", baseInfo.diskModel)
 
 	if baseInfo.agentInfo != nil {
 		query.Add("version", baseInfo.agentInfo.Version)
@@ -323,16 +404,24 @@ func (baseInfo *BaseInfo) ToLuaTable(L *lua.LState) *lua.LTable {
 	t.RawSet(lua.LString("platformVersion"), lua.LString(baseInfo.platformVersion))
 	t.RawSet(lua.LString("bootTime"), lua.LNumber(baseInfo.bootTime))
 	t.RawSet(lua.LString("arch"), lua.LString(baseInfo.arch))
+	t.RawSet(lua.LString("version"), lua.LString(baseInfo.version))
 
 	t.RawSet(lua.LString("macs"), lua.LString(baseInfo.macs))
 
 	t.RawSet(lua.LString("cpuModuleName"), lua.LString(baseInfo.cpuModuleName))
 	t.RawSet(lua.LString("cpuCores"), lua.LNumber(baseInfo.cpuCores))
 	t.RawSet(lua.LString("cpuMhz"), lua.LNumber(baseInfo.cpuMhz))
+	t.RawSet(lua.LString("cpuUsage"), lua.LNumber(baseInfo.cpuUsage))
+
+	t.RawSet(lua.LString("gpu"), lua.LString(baseInfo.gpu))
 
 	t.RawSet(lua.LString("totalmemory"), lua.LNumber(baseInfo.totalMemory))
 	t.RawSet(lua.LString("usedMemory"), lua.LNumber(baseInfo.usedMemory))
 	t.RawSet(lua.LString("availableMemory"), lua.LNumber(baseInfo.availableMemory))
+	t.RawSet(lua.LString("memoryModel"), lua.LString(baseInfo.memoryModel))
+
+	t.RawSet(lua.LString("netIRate"), lua.LNumber(baseInfo.netIRate))
+	t.RawSet(lua.LString("netORate"), lua.LNumber(baseInfo.netORate))
 
 	t.RawSet(lua.LString("baseboard"), lua.LString(baseInfo.baseboard))
 
@@ -342,6 +431,7 @@ func (baseInfo *BaseInfo) ToLuaTable(L *lua.LState) *lua.LTable {
 
 	t.RawSet(lua.LString("totalDisk"), lua.LNumber(baseInfo.totalDisk))
 	t.RawSet(lua.LString("freeDisk"), lua.LNumber(baseInfo.freeDisk))
+	t.RawSet(lua.LString("diskModel"), lua.LString(baseInfo.diskModel))
 
 	if baseInfo.agentInfo != nil {
 		t.RawSet(lua.LString("workingDir"), lua.LString(baseInfo.agentInfo.WorkingDir))
@@ -350,6 +440,7 @@ func (baseInfo *BaseInfo) ToLuaTable(L *lua.LState) *lua.LTable {
 		t.RawSet(lua.LString("scriptFileName"), lua.LString(baseInfo.agentInfo.ScriptFileName))
 		t.RawSet(lua.LString("scriptInvterval"), lua.LNumber(baseInfo.agentInfo.ScriptInvterval))
 		t.RawSet(lua.LString("channel"), lua.LString(baseInfo.agentInfo.Channel))
+		t.RawSet(lua.LString("key"), lua.LString(baseInfo.agentInfo.ControllerKey))
 	}
 
 	if baseInfo.appInfo != nil {
@@ -361,9 +452,39 @@ func (baseInfo *BaseInfo) ToLuaTable(L *lua.LState) *lua.LTable {
 		t.RawSet(lua.LString("appDir"), lua.LString(baseInfo.appInfo.AppDir))
 		t.RawSet(lua.LString("channel"), lua.LString(baseInfo.appInfo.Channel))
 	}
+
+	t.RawSet(lua.LString("webServer"), lua.LString(baseInfo.webServer))
+	t.RawSet(lua.LString("isBox"), lua.LBool(isBox))
 	return t
 }
 
 func (baseInfo *BaseInfo) UUID() string {
 	return baseInfo.uuid
+}
+
+func (baseInfo *BaseInfo) SetTraffice(n NetworkStatsRate) {
+	baseInfo.netIRate = n.IRate
+	baseInfo.netORate = n.ORate
+}
+
+func (b *BaseInfo) SetCpuUsage(cpuUsage float64) {
+	b.cpuUsage = cpuUsage
+}
+func (b *BaseInfo) SetWebServer(webServer string) {
+	b.webServer = webServer
+}
+
+func (b *BaseInfo) GetWebServer() string {
+	return b.webServer
+}
+
+func calAvg[T constraints.Integer | constraints.Float](arr []T) float64 {
+	if len(arr) == 0 {
+		return 0
+	}
+	sum := 0.0
+	for _, v := range arr {
+		sum += float64(v)
+	}
+	return sum / float64(len(arr))
 }

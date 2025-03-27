@@ -2,6 +2,7 @@ package agent
 
 import (
 	"archive/zip"
+	"bufio"
 	"bytes"
 	"crypto/md5"
 	"encoding/hex"
@@ -360,6 +361,10 @@ func (am *AgentModule) chmod(L *lua.LState) int {
 func (am *AgentModule) exec(L *lua.LState) int {
 	command := L.CheckString(1)
 	timeout := time.Duration(L.OptInt64(2, ExecTimeout)) * time.Second
+	needPrint := L.OptBool(3, false)
+	_ = needPrint
+
+	envs := L.OptString(4, "")
 
 	args := strings.Split(command, " ")
 	newArgs := make([]string, 0, len(args))
@@ -372,20 +377,62 @@ func (am *AgentModule) exec(L *lua.LState) int {
 
 	if len(newArgs) == 0 {
 		L.Push(lua.LNil)
-		L.Push(lua.LString("args can not emtpy"))
+		L.Push(lua.LString("args cannot be empty"))
 		return 2
 	}
 
 	var cmd *exec.Cmd
+
 	if len(newArgs) > 1 {
 		cmd = exec.Command(newArgs[0], newArgs[1:]...)
 	} else {
 		cmd = exec.Command(newArgs[0])
 	}
 
-	stdout, stderr := bytes.Buffer{}, bytes.Buffer{}
-	cmd.Stderr = &stderr
-	cmd.Stdout = &stdout
+	if envs != "" {
+		cmd.Env = append(cmd.Env, strings.Split(envs, " ")...)
+	}
+
+	parentEnv := os.Environ()
+	cmd.Env = append(cmd.Env, parentEnv...)
+
+	stdoutPipe, _ := cmd.StdoutPipe()
+	stderrPipe, _ := cmd.StderrPipe()
+
+	stdoutBuffer := bytes.Buffer{}
+	stderrBuffer := bytes.Buffer{}
+
+	go func() {
+		reader := bufio.NewReader(stdoutPipe)
+		for {
+			line, err := reader.ReadString('\n')
+			if len(line) > 0 {
+				stdoutBuffer.WriteString(line)
+				if needPrint {
+					fmt.Print(line) // Print to console or log
+				}
+			}
+			if err != nil {
+				break
+			}
+		}
+	}()
+
+	go func() {
+		reader := bufio.NewReader(stderrPipe)
+		for {
+			line, err := reader.ReadString('\n')
+			if len(line) > 0 {
+				stderrBuffer.WriteString(line)
+				if needPrint {
+					fmt.Print(line) // Print to console or log
+				}
+			}
+			if err != nil {
+				break
+			}
+		}
+	}()
 
 	if err := cmd.Start(); err != nil {
 		L.Push(lua.LNil)
@@ -400,14 +447,14 @@ func (am *AgentModule) exec(L *lua.LState) int {
 
 	select {
 	case <-time.After(timeout):
-		go cmd.Process.Kill()
+		_ = cmd.Process.Kill()
 		L.Push(lua.LNil)
-		L.Push(lua.LString(`execute timeout`))
+		L.Push(lua.LString("execute timeout"))
 		return 2
 	case err := <-done:
 		result := L.NewTable()
-		L.SetField(result, "stdout", lua.LString(stdout.String()))
-		L.SetField(result, "stderr", lua.LString(stderr.String()))
+		L.SetField(result, "stdout", lua.LString(stdoutBuffer.String()))
+		L.SetField(result, "stderr", lua.LString(stderrBuffer.String()))
 		L.SetField(result, "status", lua.LNumber(-1))
 
 		if err != nil {
@@ -419,6 +466,7 @@ func (am *AgentModule) exec(L *lua.LState) int {
 		} else {
 			L.SetField(result, "status", lua.LNumber(0))
 		}
+
 		L.Push(result)
 		return 1
 	}
@@ -439,6 +487,9 @@ func (am *AgentModule) runBashCmd(L *lua.LState) int {
 		L.Push(lua.LString(`unsupported os`))
 		return 2
 	}
+
+	parentEnv := os.Environ()
+	cmd.Env = append(cmd.Env, parentEnv...)
 
 	stdout, stderr := bytes.Buffer{}, bytes.Buffer{}
 	cmd.Stderr = &stderr

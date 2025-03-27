@@ -2,15 +2,21 @@ package controller
 
 import (
 	"agent/agent"
+	titanrsa "agent/common/rsa"
 	"bytes"
 	"context"
+	"crypto"
 	"crypto/md5"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
+	"reflect"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -29,6 +35,9 @@ type ConrollerArgs struct {
 	RelAppsDir           string
 	AppConfigsFileName   string
 	Channel              string
+
+	WebServerUrl string
+	KEY          string
 }
 
 type App struct {
@@ -49,11 +58,21 @@ type Controller struct {
 	apps          map[string]*App
 	metricCh      chan AppMetric
 	appMetrics    map[string]string
+
+	//
+	Config *Config
+	token  string
+	// client *http.Client
 }
 
 func New(args *ConrollerArgs) (*Controller, error) {
+	config, err := InitConfig(args.WorkingDir)
+	if err != nil {
+		return nil, err
+	}
+
 	appsDir := path.Join(args.WorkingDir, args.RelAppsDir)
-	err := os.MkdirAll(appsDir, os.ModePerm)
+	err = os.MkdirAll(appsDir, os.ModePerm)
 	if err != nil {
 		return nil, err
 	}
@@ -74,8 +93,170 @@ func New(args *ConrollerArgs) (*Controller, error) {
 		baseInfo:   info,
 		appMetrics: make(map[string]string),
 		metricCh:   make(chan AppMetric, 64),
+		Config:     config,
 	}
+
+	if err := c.regist(context.Background()); err != nil {
+		return nil, fmt.Errorf("[Regist error] %s", err.Error())
+	}
+	log.Info("Node regist success")
+
+	token, err := c.login(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("[Login error] %s", err.Error())
+	}
+	log.Info("Node login success")
+	c.token = token
+
+	if !info.IsBox() {
+		if err := c.registBindInfo(context.Background()); err != nil {
+			return nil, fmt.Errorf("[Bind Error]: %s", err.Error())
+		}
+		log.Info("Node bind success")
+	} else {
+		log.Info("Box Node, skip bind")
+	}
+
 	return c, nil
+}
+
+func (c *Controller) registBindInfo(ctx context.Context) error {
+	titanRsa := titanrsa.New(crypto.SHA256, crypto.SHA256.New())
+	sign, err := titanRsa.Sign(c.Config.PrivateKey, []byte(c.args.KEY))
+	if err != nil {
+		return fmt.Errorf("failed to sign key: %s", err.Error())
+	}
+
+	type BindReq struct {
+		Key    string `json:"key"`
+		NodeID string `json:"node_id"`
+		Sign   string `json:"sign"`
+	}
+
+	bindReq := BindReq{
+		Key:    c.args.KEY,
+		NodeID: c.Config.AgentID,
+		Sign:   hex.EncodeToString(sign),
+	}
+
+	buf, err := json.Marshal(bindReq)
+	if err != nil {
+		return fmt.Errorf("failed to marshal bind request: %s", err.Error())
+	}
+
+	webUrl := c.baseInfo.GetWebServer()
+	if webUrl != "" {
+		webUrl += "/api/network/bind_node"
+	} else {
+		webUrl = c.args.WebServerUrl
+	}
+
+	resp, err := http.Post(webUrl, "application/json", bytes.NewReader(buf))
+	if err != nil {
+		return fmt.Errorf("failed to post bind req to web-server: %s", err.Error())
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		buf, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return fmt.Errorf("failed to read response body: %s", err.Error())
+		}
+		return fmt.Errorf("bind failed, status code %d, response body: %s", resp.StatusCode, string(buf))
+	}
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response body: %s", err.Error())
+	}
+
+	type Resp struct {
+		Code int    `json:"code"`
+		Msg  string `json:"msg"`
+	}
+	rsp := Resp{}
+	if err := json.Unmarshal(respBody, &rsp); err != nil {
+		return fmt.Errorf("failed to unmarshal response body: %s", err.Error())
+	}
+
+	if rsp.Code != 0 {
+		return fmt.Errorf("bind failed, code: %d, msg: %s", rsp.Code, rsp.Msg)
+	}
+	return nil
+}
+
+func (c *Controller) login(ctx context.Context) (string, error) {
+	rsa := titanrsa.New(crypto.SHA256, crypto.SHA256.New())
+	sign, err := rsa.Sign(c.Config.PrivateKey, []byte(c.Config.AgentID))
+	if err != nil {
+		return "", err
+	}
+
+	url := fmt.Sprintf("%s%s?node_id=%s&sign=%s", c.args.ServerURL, "/node/login", c.Config.AgentID, hex.EncodeToString(sign))
+
+	ctx, cancel := context.WithTimeout(ctx, httpTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return "", err
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("regist status code: %d, msg: %s, url: %s", resp.StatusCode, string(body), url)
+	}
+
+	c.baseInfo.SetWebServer(resp.Header.Get("Web-Server"))
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	return string(body), nil
+
+}
+
+func (c *Controller) regist(ctx context.Context) error {
+
+	encodedPubKey := base64.URLEncoding.EncodeToString(titanrsa.PublicKey2Pem(&c.Config.PrivateKey.PublicKey))
+
+	url := fmt.Sprintf("%s%s?node_id=%s&pub_key=%s", c.args.ServerURL, "/node/regist", c.Config.AgentID, url.QueryEscape(encodedPubKey))
+
+	ctx, cancel := context.WithTimeout(ctx, httpTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return err
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("regist status code: %d, msg: %s, url: %s", resp.StatusCode, string(body), url)
+	}
+
+	_, err = io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+
+	// log.Infof("Controller.regist body:%s", string(body))
+
+	return nil
+
 }
 
 func (c *Controller) Run(ctx context.Context) error {
@@ -84,6 +265,8 @@ func (c *Controller) Run(ctx context.Context) error {
 	c.newApps()
 
 	go c.handleMetric(ctx)
+
+	go c.collectTraffic(ctx)
 
 	scriptUpdateinterval := time.Second * time.Duration(c.args.ScriptUpdateInterval)
 	ticker := time.NewTicker(scriptUpdateinterval)
@@ -144,6 +327,8 @@ func (c *Controller) handleMetric(ctx context.Context) {
 	}
 }
 
+// ./controller run --working-dir=./devctr --server-url=http://localhost:8080 --web-url=http://google.com --key=xxxxxx
+
 func (c *Controller) pushMetrics(metrics map[string]string) error {
 	// if len(metrics) == 0 {
 	// 	return nil
@@ -172,6 +357,8 @@ func (c *Controller) pushMetrics(metrics map[string]string) error {
 	if err != nil {
 		return err
 	}
+
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", c.token))
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -306,12 +493,12 @@ func (c *Controller) updateAppsFromServer() (bool, error) {
 	newAppConfigs := make([]*AppConfig, 0, len(appConfigs))
 	appConfigMap := make(map[string]*AppConfig)
 	for _, appConfig := range appConfigs {
+		// if appConfig.AppDir == "" || appConfig.AppName == "" || appConfig.
 		if _, ok := appConfigMap[appConfig.AppName]; ok {
 			continue
 		}
 		appConfigMap[appConfig.AppName] = appConfig
 		newAppConfigs = append(newAppConfigs, appConfig)
-
 	}
 
 	if !c.isAppsConfigChange(newAppConfigs) {
@@ -327,7 +514,7 @@ func (c *Controller) updateAppsFromServer() (bool, error) {
 
 		newMD5 := fmt.Sprintf("%x", md5.Sum(scriptContent))
 		if newMD5 != appConfig.ScriptMD5 {
-			log.Errorf("Controller.updateAppConfigAndScriptFromServer script md5 not match")
+			log.Errorf("Controller.updateAppConfigAndScriptFromServer script md5 not match, AppName: %s. server md5: %s. download md5: %s", appConfig.AppName, appConfig.ScriptMD5, newMD5)
 			return false, err
 		}
 
@@ -354,7 +541,7 @@ func (c *Controller) updateAppsFromServer() (bool, error) {
 		return false, err
 	}
 
-	c.appConfigsMD5 = c.configMD5(newAppConfigs)
+	c.appConfigsMD5 = c.configMD5(newAppConfigs) // what's this for ?
 	c.appConfigs = newAppConfigs
 
 	return true, nil
@@ -380,24 +567,32 @@ func (c *Controller) isAppsConfigChange(newAppConfigs []*AppConfig) bool {
 }
 
 func (c *Controller) isAppConfigChange(appConfig1 *AppConfig, appConfig2 *AppConfig) bool {
-	if appConfig1 == nil && appConfig2 == nil {
-		return false
-	}
 
-	b1, err := json.Marshal(appConfig1)
-	if err != nil {
-		return true
-	}
+	return !reflect.DeepEqual(appConfig1, appConfig2)
+	// // 两者均为nil 则没有变化
+	// if appConfig1 == nil && appConfig2 == nil {
+	// 	return false
+	// }
 
-	b2, err := json.Marshal(appConfig2)
-	if err != nil {
-		return true
-	}
+	// // 如果一个是nil 另一个不是 则有变化
+	// if appConfig1 == nil || appConfig2 == nil {
+	// 	return true
+	// }
 
-	config1MD5 := fmt.Sprintf("%x", md5.Sum(b1))
-	config2MD5 := fmt.Sprintf("%x", md5.Sum(b2))
+	// b1, err := json.Marshal(appConfig1)
+	// if err != nil {
+	// 	return true
+	// }
 
-	return config1MD5 != config2MD5
+	// b2, err := json.Marshal(appConfig2)
+	// if err != nil {
+	// 	return true
+	// }
+
+	// config1MD5 := fmt.Sprintf("%x", md5.Sum(b1))
+	// config2MD5 := fmt.Sprintf("%x", md5.Sum(b2))
+
+	// return config1MD5 != config2MD5
 
 }
 
@@ -413,6 +608,7 @@ func (c *Controller) getAppConfigsFromServer() ([]*AppConfig, error) {
 	if err != nil {
 		return nil, err
 	}
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", c.token))
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -434,7 +630,7 @@ func (c *Controller) getAppConfigsFromServer() ([]*AppConfig, error) {
 	appsConfigs := make([]*AppConfig, 0)
 	err = json.Unmarshal(body, &appsConfigs)
 	if err != nil {
-		return nil, nil
+		return nil, err
 	}
 	return appsConfigs, nil
 }
@@ -524,4 +720,23 @@ func (c *Controller) stopAllApps() {
 		app.app.Stop()
 	}
 
+}
+
+func (c *Controller) collectTraffic(ctx context.Context) {
+	statsChan, err := agent.MonitorNetworkStats(ctx, 1*time.Minute)
+	if err != nil {
+		log.Errorf("collect network stats error: %v", err)
+		return
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Info("collectTraffic quit")
+			return
+		case stats := <-statsChan:
+			c.baseInfo.SetTraffice(stats)
+			c.baseInfo.SetCpuUsage(agent.GetCpuRealtimeUsage())
+		}
+	}
 }

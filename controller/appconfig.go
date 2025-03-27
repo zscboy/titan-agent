@@ -1,7 +1,7 @@
 package controller
 
 type AppConfig struct {
-	AppName string `json:"name"`
+	AppName string `json:"appName"`
 	// relative app dir
 	AppDir     string `json:"appDir"`
 	ScriptName string `json:"scriptName"`

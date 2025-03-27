@@ -65,7 +65,7 @@ function mod.loadLocal()
 
     local processBPath = mod.info.workingDir .."/B/"..mod.processName
     local processB = mod.loadprocessInfo(processAPath)
-    if progresB then
+    if processB then
         local downloadPackagePath = mod.info.workingDir .."/B/"..mod.downloadPackageName
         processA.md5 = agmod.fileMD5(downloadPackagePath)
         processB.ab = "B"
@@ -81,7 +81,7 @@ function mod.loadLocal()
 
     elseif processA then
         mod.process = processA
-    elseif progresB then
+    elseif processB then
         mod.process = processB
     end
 end

@@ -27,6 +27,7 @@ type AgentArguments struct {
 
 	ServerURL string
 	Channel   string
+	Key       string
 }
 
 type Agent struct {
@@ -54,6 +55,7 @@ func New(args *AgentArguments) (*Agent, error) {
 		ScriptFileName:  args.ScriptFileName,
 		ScriptInvterval: args.ScriptInvterval,
 		Channel:         args.Channel,
+		ControllerKey:   args.Key,
 	}
 	agent := &Agent{
 		agentVersion: version,
@@ -61,10 +63,10 @@ func New(args *AgentArguments) (*Agent, error) {
 		baseInfo:     NewBaseInfo(&agentInfo, nil),
 	}
 
-	err := os.MkdirAll(args.WorkingDir, os.ModePerm)
-	if err != nil {
-		return nil, err
-	}
+	// err := os.MkdirAll(args.WorkingDir, os.ModePerm)
+	// if err != nil {
+	// 	return nil, err
+	// }
 
 	return agent, nil
 }
@@ -117,7 +119,6 @@ func (a *Agent) updateScriptFromServer() {
 		log.Errorf("updateScriptFromServer get update config: %s", err.Error())
 		return
 	}
-
 	if a.scriptFileMD5 == updateConfig.MD5 {
 		return
 	}
@@ -130,7 +131,7 @@ func (a *Agent) updateScriptFromServer() {
 
 	newFileMD5 := fmt.Sprintf("%x", md5.Sum(buf))
 	if newFileMD5 != updateConfig.MD5 {
-		log.Errorf("Server script file md5 not match")
+		log.Errorf("Server script file md5 not match, new: %s, old: %s", newFileMD5, updateConfig.MD5)
 		return
 	}
 
@@ -172,7 +173,7 @@ func (a *Agent) loadLocal() {
 func (a *Agent) getUpdateConfigFromServer() (*UpdateConfig, error) {
 	devInfoQuery := a.baseInfo.ToURLQuery()
 
-	url := fmt.Sprintf("%s?%s", a.args.ServerURL, devInfoQuery.Encode())
+	url := fmt.Sprintf("%s/update/lua?%s", a.args.ServerURL, devInfoQuery.Encode())
 
 	ctx, cancel := context.WithTimeout(context.Background(), httpTimeout)
 	defer cancel()
